@@ -73,7 +73,7 @@ export class QuestionService {
                         .on("end", async () => {
                             if (questions.length > 0) {
                                 await QuestionModel.insertMany(questions);
-                                return ResponseHandler.sendSuccessResponse(res, 200, { questions }, "Bulk questions imported successfully");
+                                return ResponseHandler.sendSuccessResponse(res, 201, { questions }, "Bulk questions imported successfully");
                             } else {
                                 return ResponseHandler.sendErrorResponse(res, new ApiError(400, "No questions found in the CSV file"));
                             }

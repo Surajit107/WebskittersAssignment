@@ -8,6 +8,7 @@ import { ResponseHandler } from "../../utils/response";
 import { ApiResponse } from "../../utils/ApiResponse";
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { CommonTypes } from "../../../types/commonType";
+import EmailService from "../../utils/EmailService";
 
 class CookieOptions {
     static httpOnly = true;
@@ -30,7 +31,7 @@ export class AuthService {
         return UserModel.aggregate([
             {
                 $match: {
-                    isDeleted: false,
+                    isVerified: true,
                     _id: userId,
                 },
             },
@@ -61,31 +62,57 @@ export class AuthService {
             fullName,
             email,
             password,
+            isVerified: false,
             answers: []
         });
-        const savedUser = await this.fetchUserData(newUser._id);
-        const filteredUser = {
-            _id: savedUser[0]._id,
-            fullName: savedUser[0].fullName,
-            email: savedUser[0].email,
-            avatar: savedUser[0].avatar,
-        };
 
-        const { accessToken, refreshToken } = await TokenService.generateAccessAndRefreshToken(res, newUser._id);
+        if (!newUser) {
+            return ResponseHandler.sendErrorResponse(res, new ApiError(404, "User not found"));
+        }
 
-        return res.status(200)
-            .cookie("accessToken", accessToken, CookieOptions.getOptions())
-            .cookie("refreshToken", refreshToken, CookieOptions.getOptions())
-            .json({
-                statusCode: 200,
-                data: {
-                    user: filteredUser,
-                    accessToken,
-                    refreshToken,
-                },
-                message: "User Registered Successfully",
-                success: true,
-            });
+        // Generate email verification token
+        const verificationToken = TokenService.generateVerificationToken(newUser._id);
+        const verificationUrl = `${req.protocol}://${req.get('host')}${req.baseUrl}/verify-email?token=${verificationToken}`;
+
+        // Send verification email using EmailService
+        const emailResponse = await EmailService.sendEmail({
+            receiver: newUser.email,
+            subject: 'Email Verification - Please verify your account',
+            htmlContent: `<p>Please verify your account by clicking on the link below:</p>
+                      <a href="${verificationUrl}">${verificationUrl}</a>`
+        });
+
+        if (!emailResponse.success) {
+            return ResponseHandler.sendErrorResponse(res, new ApiError(500, emailResponse.message));
+        }
+
+        return ResponseHandler.sendSuccessResponse(res, 201, {}, "User registered successfully. Please check your email to verify your account.");
+    }).handle;
+
+    // registerUser method
+    static verifyEmail = new AsyncHandler(async (req: Request, res: Response) => {
+        const { token } = req.query;
+
+        if (!token) {
+            return ResponseHandler.sendErrorResponse(res, new ApiError(400, "Verification token is required"));
+        }
+
+        try {
+            // Verify the token
+            const decodedToken = jwt.verify(token as string, process.env.EMAIL_VERIFICATION_SECRET as string) as JwtPayload;
+            const userId = decodedToken._id;
+
+            // Find the user and mark them as verified
+            const user = await UserModel.findByIdAndUpdate(userId, { isVerified: true }, { new: true });
+
+            if (!user) {
+                return ResponseHandler.sendErrorResponse(res, new ApiError(400, "Invalid token or user does not exist"));
+            }
+
+            return res.status(200).json(new ApiResponse(200, {}, "Email verified successfully"));
+        } catch (error) {
+            return ResponseHandler.sendErrorResponse(res, new ApiError(400, "Invalid or expired token"));
+        }
     }).handle;
 
     // loginUser method
@@ -107,17 +134,19 @@ export class AuthService {
             return ResponseHandler.sendErrorResponse(res, new ApiError(403, "Invalid user credentials"));
         }
 
-        if (user.isDeleted) {
-            return ResponseHandler.sendErrorResponse(res, new ApiError(403, "Your account is banned from AnyJob"));
+        if (!user.isVerified) {
+            return ResponseHandler.sendErrorResponse(res, new ApiError(403, "Please verify your account before login."));
         }
 
-        const { accessToken, refreshToken } = await TokenService.generateAccessAndRefreshToken(res, user._id);
-        const loggedInUser = await this.fetchUserData(user._id);
+        const { accessToken, refreshToken } = await TokenService.generateAccessAndRefreshToken(res, user?._id);
+        const loggedInUser = await this.fetchUserData(user?._id);        
+
         const filteredUser = {
             _id: loggedInUser[0]._id,
             fullName: loggedInUser[0].fullName,
             email: loggedInUser[0].email,
             avatar: loggedInUser[0].avatar,
+            isVerified: loggedInUser[0].isVerified,
         };
 
         return res.status(200)

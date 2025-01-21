@@ -36,7 +36,7 @@ const UserSchema: Schema<Schemas.IUser> = new Schema({
             default: Math.floor(Date.now() / 1000)                    // Default value is the current Unix timestamp
         },
     }],
-    isDeleted: {
+    isVerified: {
         type: Boolean,
         default: false,
     },

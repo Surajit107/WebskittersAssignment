@@ -16,7 +16,7 @@ export namespace Schemas {
         isPasswordCorrect(password: string): Promise<boolean>;
         generateAccessToken(): string;
         generateRefreshToken(): string;
-        isDeleted?: boolean;
+        isVerified?: boolean;
         createdAt?: Date;
         updatedAt?: Date;
     }
