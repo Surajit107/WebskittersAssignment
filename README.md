@@ -1,4 +1,4 @@
-# WebskittersAssessment
+# WebskittersAssignment
 
 To run the project in development mode:
 
